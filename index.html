@@ -1,0 +1,179 @@
+<!-- This code was developed by Ben Coble and Sara Remsen as a final project for 1.001.
+Our d3 code was derived from sample code from Mike Bostock's hierarchical edge
+bundling graphic, found here: https://bl.ocks.org/mbostock/7607999, after completing 
+several d3 tutorials to understand the capabilities and frameworks for the language and
+given the specific requirements of our bird data set from ebird. We experimented with 
+several d3 visualizations to find the best match for our use case. This code uses one
+of dataset at a time (split by month) to draw individual visualizations. This file can
+be run directly in a browser using a local web server.-->
+
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+.node {
+  font: 300 11px "Helvetica Neue", Helvetica, Arial, sans-serif;
+  fill: #566573;
+}
+
+.node:hover {
+  fill: #000;
+}
+
+.link {
+  stroke:#45B39D;
+  stroke-opacity: 0.1;
+  fill: none;
+  pointer-events: none;
+}
+
+.node:hover,
+.node--source,
+.node--target {
+  font-weight: 700;
+}
+
+.link--source,
+.link--target {
+  stroke-opacity: 1;
+  stroke-width: 2px;
+}
+
+.link--source {
+  stroke: #F7DC6F;
+  stroke-opacity: 0.3;
+}
+
+.link--target {
+  stroke: #F7DC6F;
+  stroke-opacity: 0.3;
+}
+
+</style>
+<body>
+<script type="text/javascript" src="https://d3js.org/d3.v4.js"></script>
+<script>
+
+// set the basic parameters for the svg image
+var diameter = 960,
+    radius = diameter / 2,
+    innerRadius = radius - 120;
+
+var cluster = d3.cluster()
+    .size([360, innerRadius]);
+
+var line = d3.radialLine()
+    .curve(d3.curveBundle.beta(0.85))
+    .radius(function(d) { return d.y; })
+    .angle(function(d) { return d.x / 180 * Math.PI; });
+
+var svg = d3.select("body").append("svg")
+    .attr("width", diameter)
+    .attr("height", diameter)
+    .append("g")
+    .attr("transform", "translate(" + radius + "," + radius + ")");
+
+var link = svg.append("g").selectAll(".link"),
+    node = svg.append("g").selectAll(".node");
+
+// import data as a json file
+// change the data file here to update the visualization
+d3.json("/dataOutputs/all_May04Data.json", function(error, json) {
+  if (error) throw error;
+
+  var root = birdSightings(json)
+      .sum(function(d) { return d.size; });
+
+  cluster(root);
+
+  // set up the d3 for the links and nodes
+  link = link
+    .data(importCobirds(root.leaves()))
+    .enter().append("path")
+      .each(function(d) { d.source = d[0], d.target = d[d.length - 1]; })
+      .attr("class", "link")
+      .attr("d", line);
+
+  node = node
+    .data(root.leaves())
+    .enter().append("text")
+      .attr("class", "node")
+      .attr("dy", "0.31em")
+      .attr("transform", function(d) { return "rotate(" + (d.x - 90) + ")translate(" + (d.y + 8) + ",0)" + (d.x < 180 ? "" : "rotate(180)"); })
+      .attr("text-anchor", function(d) { return d.x < 180 ? "start" : "end"; })
+      .text(function(d) { return d.data.key; })
+      .on("mouseover", mouseovered)
+      .on("mouseout", mouseouted);
+});
+
+// set up interactive link highlighting depend on mouseover
+function mouseovered(d) {
+  node
+      .each(function(n) { n.target = n.source = false; });
+
+  link
+      .classed("link--target", function(l) { if (l.target === d) return l.source.source = true; })
+      .classed("link--source", function(l) { if (l.source === d) return l.target.target = true; })
+    .filter(function(l) { return l.target === d || l.source === d; })
+      .raise();
+
+  node
+      .classed("node--target", function(n) { return n.target; })
+      .classed("node--source", function(n) { return n.source; });
+}
+
+function mouseouted(d) {
+  link
+      .classed("link--target", false)
+      .classed("link--source", false);
+
+  node
+      .classed("node--target", false)
+      .classed("node--source", false);
+}
+
+// Construct relationships between mainbirds and cobirds from dataset
+function birdSightings(json) {
+  var map = {};
+
+  function find(name, data) {
+    var node = map[name], i;
+    if (!node) {
+      node = map[name] = data || {name: name, children: []};
+      if (name.length) {
+        node.parent = find(name.substring(0, i = name.lastIndexOf(".")));
+        node.parent.children.push(node);
+        node.key = name.substring(i + 1);
+      }
+    }
+    return node;
+  }
+
+  json.forEach(function(d) {
+    find(d.mainbird, d);
+  });
+
+  return d3.hierarchy(map[""]);
+}
+
+// Return a list of cosightings for the given array of mainbirds.
+function importCobirds(nodes) {
+  var map = {},
+      cobirds = [];
+
+  // Compute a map from name to node.
+  nodes.forEach(function(d) {
+    map[d.data.mainbird] = d;
+  });
+
+  // For each bird, construct a link from the source to target node.
+  nodes.forEach(function(d) {
+    if (d.data.cobirds) d.data.cobirds.forEach(function(i) {
+      cobirds.push(map[d.data.mainbird].path(map[i]));
+    });
+  });
+
+  return cobirds;
+}
+
+</script>
